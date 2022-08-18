@@ -90,6 +90,7 @@ func New(args []string) (*genny.Generator, error) {
 			`//AuthMiddlewares`,
 			`app.Use(SetCurrentUser)`,
 			`app.Use(Authorize)`,
+			`app.Use(SetupRecoverySender(s))`,
 			``,
 			`//Routes for Auth`,
 			`auth := app.Group("/auth")`,
