@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 
-	"github.com/gobuffalo/buffalo-auth/genny/auth"
+	"github.com/briwagner/buffalo-auth/genny/auth"
 	"github.com/gobuffalo/genny/v2"
 	"github.com/gobuffalo/genny/v2/gogen"
 	"github.com/pkg/errors"
