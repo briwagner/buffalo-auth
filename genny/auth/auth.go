@@ -22,9 +22,11 @@ var templates embed.FS
 
 func extraAttrs(args []string) []string {
 	var names = map[string]string{
-		"email":    "email",
-		"password": "password",
-		"id":       "id",
+		"email":               "email",
+		"password":            "password",
+		"id":                  "id",
+		"recovery_code":       "recovery_code",
+		"recovery_expiration": "recovery_expiration",
 	}
 
 	var result = []string{}
@@ -83,6 +85,8 @@ func New(args []string) (*genny.Generator, error) {
 		gf, err = gogen.AddInsideBlock(
 			gf,
 			`if app == nil {`,
+			`s:= MockSender{}`,
+			``,
 			`//AuthMiddlewares`,
 			`app.Use(SetCurrentUser)`,
 			`app.Use(Authorize)`,
@@ -93,7 +97,13 @@ func New(args []string) (*genny.Generator, error) {
 			`auth.GET("/new", AuthNew)`,
 			`auth.POST("/", AuthCreate)`,
 			`auth.DELETE("/", AuthDestroy)`,
-			`auth.Middleware.Skip(Authorize, AuthLanding, AuthNew, AuthCreate)`,
+			``,
+			`//Password recovery`,
+			`app.GET("/recovery", UserRecovery)`,
+			`app.POST("/requestRecovery", UserRequestRecovery)`,
+			`app.GET("/recover", UserRecover)`,
+			`app.POST("/completeRecovery", UserRequestRecover)`,
+			`auth.Middleware.Skip(Authorize, AuthLanding, AuthNew, AuthCreate, UserRequestRecovery, UserRecovery, UserRecover, UserRequestRecover)`,
 			``,
 			`//Routes for User registration`,
 			`users := app.Group("/users")`,
