@@ -189,18 +189,10 @@ func UserRequestRecovery(c buffalo.Context) error {
 	return c.Render(200, r.Auto(c, "Sent"))
 }
 
-// RecoveryUpdate request struct for using recovery code
-type RecoveryUpdate struct {
-	Email                string `json:"email"`
-	Code                 string `json:"code"`
-	Password             string `json:"password"`
-	PasswordConfirmation string `json:"password_confirm"`
-}
-
 // UserRequestRecover is used to allow users to reset their passwords
 // using the recovery code we've sent them
 func UserRequestRecover(c buffalo.Context) error {
-	req := &RecoveryUpdate{}
+	req := &models.RecoveryUpdate{}
 	if err := c.Bind(req); err != nil {
 		return errors.WithStack(err)
 	}
@@ -211,8 +203,16 @@ func UserRequestRecover(c buffalo.Context) error {
 	}
 
 	u := &models.User{}
+	verrs := req.Validate()
+	if verrs.HasAny() {
+		c.Set("errors", verrs)
+		c.Set("req", req)
+		return c.Render(200, r.HTML("users/recover.html"))
+	}
+	
 	if err := tx.Where("Lower(email) = ?", strings.ToLower(req.Email)).First(u); err != nil {
-		return c.Error(403, errors.New("email and recovery code do not match"))
+		c.Flash().Add("danger", "Recovery code is not valid")
+		return c.Redirect(301, "/recover")
 	}
 
 	if u.RecoveryExp.Time.After(time.Now().UTC()) && u.RecoveryCode.String == req.Code {
@@ -230,10 +230,12 @@ func UserRequestRecover(c buffalo.Context) error {
 			return c.Render(200, r.HTML("users/recover.html"))
 		}
 	} else {
-		return c.Error(403, errors.New("email and recovery code do not match"))
+		c.Flash().Add("warning", "Recovery code is not valid")
+		return c.Redirect(301, "/recover")
 	}
 
 	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
+		c.Flash().Add("success", "Your password has been reset")
 		return c.Redirect(302, "/")
 	}
 	return c.Render(200, r.Auto(c, u))

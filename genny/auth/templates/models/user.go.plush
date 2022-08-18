@@ -157,3 +157,37 @@ func encryptPassword(password string) (string, error) {
 	ph, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(ph), err
 }
+
+// RecoveryUpdate request struct for using recovery code
+type RecoveryUpdate struct {
+	Email                string `json:"email"`
+	Code                 string `json:"code"`
+	Password             string `json:"password"`
+	PasswordConfirmation string `json:"password_confirm"`
+}
+
+// Validate can be run to verify a recovery request
+func (ru *RecoveryUpdate) Validate() *validate.Errors {
+	verrs := validate.Validate(
+		&validators.StringIsPresent{Field: ru.Code, Name: "Code"},
+		&validators.StringIsPresent{Field: ru.Password, Name: "Password"},
+		&validators.StringIsPresent{Field: ru.PasswordConfirmation, Name: "Password confirmation"},
+		&validators.StringsMatch{
+			Name:    "Password",
+			Field:   ru.Password,
+			Field2:  ru.PasswordConfirmation,
+			Message: "Password and confirmation must match",
+		},
+	)
+	if verrs.HasAny() {
+		ru.sanitizeFields()
+	}
+	return verrs
+}
+
+// sanitizeFields wipes the password fields set by user
+func (ru *RecoveryUpdate) sanitizeFields() {
+	// wipe out password fields.
+	ru.Password = ""
+	ru.PasswordConfirmation = ""
+}

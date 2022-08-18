@@ -19,10 +19,10 @@
   <div class="sign-form">
     <h1>Request Recovery Code</h1>
 
-    <%= form_for(req, {action: "/requestRecovery"}) { %>
+    <%= form_for(req, {action: requestRecoveryPath(), method: "POST"}) { %>
       <%= f.InputTag("Email") %>
 
-      <button class="btn btn-success">Send Recovery Code!</button>
+      <button class="btn btn-success">Send</button>
     <% } %>
   </div>
 </div> 

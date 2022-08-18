@@ -103,7 +103,7 @@ func New(args []string) (*genny.Generator, error) {
 			`app.GET("/recovery", UserRecovery)`,
 			`app.POST("/requestRecovery", UserRequestRecovery)`,
 			`app.GET("/recover", UserRecover)`,
-			`app.POST("/completeRecovery", UserRequestRecover)`,
+			`app.POST("/recover", UserRequestRecover)`,
 			`auth.Middleware.Skip(Authorize, AuthLanding, AuthNew, AuthCreate, UserRequestRecovery, UserRecovery, UserRecover, UserRequestRecover)`,
 			``,
 			`//Routes for User registration`,
