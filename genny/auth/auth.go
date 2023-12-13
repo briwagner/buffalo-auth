@@ -3,6 +3,7 @@ package auth
 import (
 	"embed"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/gobuffalo/genny/v2/plushgen"
 	"github.com/gobuffalo/meta"
 	"github.com/gobuffalo/plush/v4"
-	"github.com/pkg/errors"
 )
 
 //go:embed templates
@@ -32,9 +32,9 @@ func extraAttrs(args []string) []string {
 	var result = []string{}
 	for _, field := range args {
 		at, _ := attrs.Parse(field)
-		field = at.Name.Underscore().String()
+		name := at.Name.Underscore().String()
 
-		if names[field] != "" {
+		if names[name] != "" {
 			continue
 		}
 
@@ -54,20 +54,26 @@ func New(args []string) (*genny.Generator, error) {
 	var err error
 	fields, err = attrs.ParseArgs(extraAttrs(args)...)
 	if err != nil {
-		return g, errors.WithStack(err)
+		return g, fmt.Errorf("could not parse arguments: %w", err)
 	}
 
 	sub, err := fs.Sub(templates, "templates")
 	if err != nil {
-		return g, errors.WithStack(err)
+		return g, fmt.Errorf("failed to get subtree of templates: %w", err)
 	}
 	if err := g.FS(sub); err != nil {
-		return g, errors.WithStack(err)
+		return g, fmt.Errorf("failed to add subtree: %w", err)
 	}
 
 	ctx := plush.NewContext()
 	ctx.Set("app", meta.New("."))
 	ctx.Set("attrs", fields)
+	ctx.Set("option", func(attr attrs.Attr) template.HTML {
+		if strings.HasPrefix(attr.GoType(), "nulls.") {
+			return "\"null\": true"
+		}
+		return ""
+	})
 
 	g.Transformer(plushgen.Transformer(ctx))
 	g.Transformer(genny.NewTransformer(".html", newUserHTMLTransformer))
@@ -77,16 +83,12 @@ func New(args []string) (*genny.Generator, error) {
 	g.RunFn(func(r *genny.Runner) error {
 
 		path := filepath.Join("actions", "app.go")
-		gf, err := r.FindFile(path)
+		f, err := r.FindFile(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("setup auth: %w", err)
 		}
 
-		gf, err = gogen.AddInsideBlock(
-			gf,
-			`if app == nil {`,
-			`s:= MockSender{}`,
-			``,
+		expressions := []string{
 			`//AuthMiddlewares`,
 			`app.Use(SetCurrentUser)`,
 			`app.Use(Authorize)`,
@@ -112,12 +114,27 @@ func New(args []string) (*genny.Generator, error) {
 			`users.POST("/", UsersCreate)`,
 			`users.Middleware.Remove(Authorize)`,
 			``,
-		)
+		}
+		f, err = gogen.AddInsideBlock(f, "appOnce.Do(func() {", expressions...)
 		if err != nil {
-			return errors.WithStack(err)
+			if strings.Contains(err.Error(), "could not find desired block") {
+				// TODO: remove this block some day soon
+				// add this block for compatibility with the apps built with
+				// the old version of Buffalo CLI (v0.18.8 or older)
+				f, err = gogen.AddInsideBlock(f, "if app == nil {", expressions...)
+				if err != nil {
+					if err != nil {
+						return fmt.Errorf("could not add a code block: %w", err)
+					} else {
+						r.Logger.Warnf("This app was built with CLI v0.18.8 or older. See https://gobuffalo.io/documentation/known-issues/#cli-v0.18.8")
+					}
+				}
+			} else {
+				return fmt.Errorf("could not add a code block: %w", err)
+			}
 		}
 
-		return r.File(gf)
+		return r.File(f)
 	})
 
 	return g, nil

@@ -3,6 +3,7 @@ package actions
 import (
 	"fmt"
 	"math/rand"
+  "net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -19,22 +20,22 @@ import (
 func UsersNew(c buffalo.Context) error {
 	u := models.User{}
 	c.Set("user", u)
-	return c.Render(200, r.HTML("users/new.plush.html"))
+	return c.Render(http.StatusOK, r.HTML("users/new.plush.html"))
 }
 
-// UserRecovery returns the html form for requesting a 
+// UserRecovery returns the html form for requesting a
 // recovery code
 func UserRecovery(c buffalo.Context) error {
 	req := RecoveryRequest{}
 	c.Set("req", req)
-	return c.Render(200, r.HTML("users/recovery.html"))
+	return c.Render(http.StatusOK, r.HTML("users/recovery.html"))
 }
 
 // UserRecover returns the html form for using the recovery code
 func UserRecover(c buffalo.Context) error {
 	req := RecoveryUpdate{}
 	c.Set("req", req)
-	return c.Render(200, r.HTML("users/recover.html"))
+	return c.Render(http.StatusOK, r.HTML("users/recover.html"))
 }
 
 // UsersCreate registers a new user with the application.
@@ -53,13 +54,13 @@ func UsersCreate(c buffalo.Context) error {
 	if verrs.HasAny() {
 		c.Set("user", u)
 		c.Set("errors", verrs)
-		return c.Render(200, r.HTML("users/new.plush.html"))
+		return c.Render(http.StatusOK, r.HTML("users/new.plush.html"))
 	}
 
 	c.Session().Set("current_user_id", u.ID)
-	c.Flash().Add("success", "Welcome to Buffalo!")
+	c.Flash().Add("success", "Welcome to <%= app.Name %>")
 
-	return c.Redirect(302, "/")
+	return c.Redirect(http.StatusFound, "/")
 }
 
 // SetCurrentUser attempts to find a user based on the current_user_id
@@ -71,7 +72,10 @@ func SetCurrentUser(next buffalo.Handler) buffalo.Handler {
 			tx := c.Value("tx").(*pop.Connection)
 			err := tx.Find(u, uid)
 			if err != nil {
-				return errors.WithStack(err)
+        c.Session().Delete("current_user_id")
+        c.Session().Set("redirectURL", c.Request().URL.String())
+        c.Flash().Add("danger", "You must be authorized with a correct user to see that page")
+				return c.Redirect(http.StatusFound, "/auth/new")
 			}
 			c.Set("current_user", u)
 		}
@@ -91,7 +95,7 @@ func Authorize(next buffalo.Handler) buffalo.Handler {
 			}
 
 			c.Flash().Add("danger", "You must be authorized to see that page")
-			return c.Redirect(302, "/auth/new")
+			return c.Redirect(http.StatusFound, "/auth/new")
 		}
 		return next(c)
 	}
@@ -165,7 +169,7 @@ func UserRequestRecovery(c buffalo.Context) error {
 	if verrs.HasAny() {
 		c.Set("errors", verrs)
 		c.Set("req", req)
-		return c.Render(200, r.HTML("users/recovery.html"))
+		return c.Render(http.StatusOK, r.HTML("users/recovery.html"))
 	}
 	go func(u *models.User) {
 		sender, ok := c.Value("recovery_sender").(Sender)
@@ -184,9 +188,9 @@ func UserRequestRecovery(c buffalo.Context) error {
 	}(u)
 
 	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
-		return c.Redirect(302, "/recover")
+		return c.Redirect(http.StatusFound, "/recover")
 	}
-	return c.Render(200, r.Auto(c, "Sent"))
+	return c.Render(http.StatusOK, r.Auto(c, "Sent"))
 }
 
 // UserRequestRecover is used to allow users to reset their passwords
@@ -207,9 +211,9 @@ func UserRequestRecover(c buffalo.Context) error {
 	if verrs.HasAny() {
 		c.Set("errors", verrs)
 		c.Set("req", req)
-		return c.Render(200, r.HTML("users/recover.html"))
+		return c.Render(http.StatusOK, r.HTML("users/recover.html"))
 	}
-	
+
 	if err := tx.Where("Lower(email) = ?", strings.ToLower(req.Email)).First(u); err != nil {
 		c.Flash().Add("danger", "Recovery code is not valid")
 		return c.Redirect(301, "/recover")
@@ -227,7 +231,7 @@ func UserRequestRecover(c buffalo.Context) error {
 		if verrs.HasAny() {
 			c.Set("errors", verrs)
 			c.Set("req", req)
-			return c.Render(200, r.HTML("users/recover.html"))
+			return c.Render(http.StatusOK, r.HTML("users/recover.html"))
 		}
 	} else {
 		c.Flash().Add("warning", "Recovery code is not valid")
@@ -236,7 +240,7 @@ func UserRequestRecover(c buffalo.Context) error {
 
 	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
 		c.Flash().Add("success", "Your password has been reset")
-		return c.Redirect(302, "/")
+		return c.Redirect(http.StatusFound, "/")
 	}
-	return c.Render(200, r.Auto(c, u))
+	return c.Render(http.StatusOK, r.Auto(c, u))
 }

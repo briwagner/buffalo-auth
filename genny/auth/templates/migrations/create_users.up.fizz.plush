@@ -4,5 +4,5 @@ create_table("users"){
     t.Column("password_hash", "string", {})
     t.Column("recovery_code", "string", {"null": true})
     t.Column("recovery_expiration", "datetime", {"null": true})
-<%= for (attr) in attrs { %>    t.Column("<%= attr.Name.Underscore() %>", "<%= attr.CommonType() %>", {})
+<%= for (attr) in attrs { %>    t.Column("<%= attr.Name.Underscore() %>", "<%= attr.CommonType() %>", {<%= option(attr) %>})
 <% } %>}
