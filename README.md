@@ -1,16 +1,26 @@
-<p align="center"><img src="https://github.com/gobuffalo/buffalo/blob/master/logo.svg" width="360"></p>
+# Forked: Auth Generator for Buffalo
 
-# Auth Generator for Buffalo
+From <a href="https://github.com/gobuffalo/buffalo-auth">Buffalo Auth</a>
 
-[![Tests](https://github.com/gobuffalo/buffalo-auth/actions/workflows/tests.yml/badge.svg)](https://github.com/gobuffalo/buffalo-auth/actions/workflows/tests.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/gobuffalo/buffalo-auth.svg)](https://pkg.go.dev/github.com/gobuffalo/buffalo-auth)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gobuffalo/buffalo-auth)](https://goreportcard.com/report/github.com/gobuffalo/buffalo-auth)
+**Why is this forked?**
+
+This repo includes <a href="https://github.com/gobuffalo/buffalo-auth/pull/43">some proposed changes</a> for account recovery, which never made it into the main branch. Also I modified some of the default routes to match common cases that I've seen in the world, and that I want to re-use on projects.
+
+## What are the big changes?
+
+**Account recovery**: this version includes an account recovery mechanism, which sends a code via email. There is a form to request the recovery code, and a separate form to login with the code.
+
+**User model fields**: the User model includes fields for the recovery code.
+
+**Default settings**: the default configuration provides NO CHECKS on authentication for routes. There are comments in the routing file about how to enable them. (I find it confusing that most routes, including homepage, were protected by default.)
 
 ## Installation
 
 ```console
 $ buffalo plugins install github.com/gobuffalo/buffalo-auth
 ```
+
+**Email**: email delivery is required for the plugin to work properly. The default configuration includes a skeleton `sender` service which should be customized to work with your email system.
 
 ## Usage
 
@@ -68,10 +78,13 @@ type User struct {
   UpdatedAt            time.Time `json:"updated_at" db:"updated_at"`
   Email                string    `json:"email" db:"email"`
   PasswordHash         string    `json:"password_hash" db:"password_hash"`
+  Password             string    `json:"-" db:"-"`
+  PasswordConfirmation string    `json:"-" db:"-"`
+  RecoveryCode         nulls.String `json:"-" db:"recovery_code"`
+  RecoveryExp          nulls.Time   `json:"-" db:"recovery_expiration"`
+
   FirstName            string    `json:"first_name" db:"first_name"`
   LastName             string    `json:"last_name" db:"last_name"`
   Notes                string    `json:"notes" db:"notes"`
-  Password             string    `json:"-" db:"-"`
-  PasswordConfirmation string    `json:"-" db:"-"`
 }
 ```
