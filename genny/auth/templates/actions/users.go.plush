@@ -3,7 +3,7 @@ package actions
 import (
 	"fmt"
 	"math/rand"
-  "net/http"
+    "net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -16,29 +16,19 @@ import (
 	"<%= app.PackagePkg %>/models"
 )
 
-//UsersNew renders the users form
+// UsersNew renders the new-user form.
 func UsersNew(c buffalo.Context) error {
+	if uid := c.Session().Get("current_user_id"); uid != nil {
+		c.Flash().Add("info", "You are logged in")
+		return c.Redirect(302, "/")
+	}
+
 	u := models.User{}
 	c.Set("user", u)
 	return c.Render(http.StatusOK, r.HTML("users/new.plush.html"))
 }
 
-// UserRecovery returns the html form for requesting a
-// recovery code
-func UserRecovery(c buffalo.Context) error {
-	req := RecoveryRequest{}
-	c.Set("req", req)
-	return c.Render(http.StatusOK, r.HTML("users/recovery.html"))
-}
-
-// UserRecover returns the html form for using the recovery code
-func UserRecover(c buffalo.Context) error {
-	req := RecoveryUpdate{}
-	c.Set("req", req)
-	return c.Render(http.StatusOK, r.HTML("users/recover.html"))
-}
-
-// UsersCreate registers a new user with the application.
+// UsersCreate handles new-user form, registering a new user with the application.
 func UsersCreate(c buffalo.Context) error {
 	u := &models.User{}
 	if err := c.Bind(u); err != nil {
@@ -63,6 +53,138 @@ func UsersCreate(c buffalo.Context) error {
 	return c.Redirect(http.StatusFound, "/")
 }
 
+// PasswordResetForm returns the password-reset form.
+func PasswordResetForm(c buffalo.Context) error {
+	req := RecoveryRequest{}
+	c.Set("req", req)
+	return c.Render(http.StatusOK, r.HTML("users/recovery.html"))
+}
+
+// RecoveryRequest request struct for a recovery code
+type RecoveryRequest struct {
+	Email string `json:"email"`
+}
+
+// PasswordReset handles request for password-reset form.
+func PasswordReset(c buffalo.Context) error {
+	req := &RecoveryRequest{}
+
+	if err := c.Bind(req); err != nil {
+		return errors.WithStack(err)
+	}
+
+	tx, ok := c.Value("tx").(*pop.Connection)
+	if !ok {
+		return errors.WithStack(errors.New("no transaction found"))
+	}
+
+	u := &models.User{}
+	if err := tx.Where(`Lower(email) = ?`, strings.ToLower(req.Email)).First(u); err != nil {
+		// User not found. Obfuscate the error to avoid revealing valid emails.
+		c.Flash().Add("danger", "Invalid form data")
+		return c.Redirect(http.StatusMovedPermanently, "accountRecoveryPath()")
+	}
+	u.RecoveryCode = nulls.NewString(verifyCode())
+	u.RecoveryExp = nulls.NewTime(time.Now().UTC().Add(time.Minute * 10))
+
+	verrs, err := u.Update(tx)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	if verrs.HasAny() {
+		c.Set("errors", verrs)
+		c.Set("req", req)
+		return c.Render(http.StatusOK, r.HTML("users/recovery.html"))
+	}
+	go func(u *models.User) {
+		sender, ok := c.Value("recovery_sender").(Sender)
+		if !ok {
+			fmt.Printf("ERROR SENDING RECOVERY: no recovery sender found\n")
+			return
+		}
+
+		if err := sender.Send(map[string]interface{}{
+			"code":           u.RecoveryCode.String,
+			"sender_email":   "system@example.com",
+			"receiver_email": u.Email,
+		}); err != nil {
+			fmt.Printf("ERROR SENDING RECOVERY: %v\n", err)
+		}
+	}(u)
+
+	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
+		c.Flash().Add("danger", "Something bad happened")
+		return c.Redirect(http.StatusFound, "accountRecoveryForm()")
+	}
+	return c.Render(http.StatusOK, r.Auto(c, "Sent"))
+}
+
+// AccountRecoveryForm returns the account-recovery form.
+func AccountRecoveryForm(c buffalo.Context) error {
+	req := RecoveryUpdate{}
+	c.Set("req", req)
+	return c.Render(http.StatusOK, r.HTML("users/recover.html"))
+}
+
+// RecoveryUpdate request struct for using recovery code.
+type RecoveryUpdate struct {
+	Email                string `json:"email"`
+	Code                 string `json:"code"`
+	Password             string `json:"password"`
+	PasswordConfirmation string `json:"password_confirm"`
+}
+
+// AccountRecovery handles a request to login with account-recovery code.
+func AccountRecovery(c buffalo.Context) error {
+	req := &models.RecoveryUpdate{}
+	if err := c.Bind(req); err != nil {
+		return errors.WithStack(err)
+	}
+
+	tx, ok := c.Value("tx").(*pop.Connection)
+	if !ok {
+		return errors.WithStack(errors.New("no transaction found"))
+	}
+
+	u := &models.User{}
+	verrs := req.Validate()
+	if verrs.HasAny() {
+		c.Set("errors", verrs)
+		c.Set("req", req)
+		return c.Render(http.StatusOK, r.HTML("users/recover.html"))
+	}
+
+	if err := tx.Where("Lower(email) = ?", strings.ToLower(req.Email)).First(u); err != nil {
+		c.Flash().Add("danger", "Recovery code is invalid")
+		return c.Redirect(http.StatusMovedPermanently, "accountRecoveryPath()")
+	}
+
+	if u.RecoveryExp.Time.After(time.Now().UTC()) && u.RecoveryCode.String == req.Code {
+		u.Password = req.Password
+		u.PasswordConfirmation = req.PasswordConfirmation
+
+		u.RecoveryCode = nulls.NewString("")
+		verrs, err := u.Update(tx)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		if verrs.HasAny() {
+			c.Set("errors", verrs)
+			c.Set("req", req)
+			return c.Render(http.StatusOK, r.HTML("users/recover.html"))
+		}
+	} else {
+		c.Flash().Add("warning", "Recovery code is invalid")
+		return c.Redirect(http.StatusMovedPermanently, "accountRecoveryPath()")
+	}
+
+	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
+		c.Flash().Add("success", "Your password has been reset")
+		return c.Redirect(http.StatusFound, "/")
+	}
+	return c.Render(http.StatusOK, r.Auto(c, u))
+}
+
 // SetCurrentUser attempts to find a user based on the current_user_id
 // in the session. If one is found it is set on the context.
 func SetCurrentUser(next buffalo.Handler) buffalo.Handler {
@@ -72,9 +194,9 @@ func SetCurrentUser(next buffalo.Handler) buffalo.Handler {
 			tx := c.Value("tx").(*pop.Connection)
 			err := tx.Find(u, uid)
 			if err != nil {
-        c.Session().Delete("current_user_id")
-        c.Session().Set("redirectURL", c.Request().URL.String())
-        c.Flash().Add("danger", "You must be authorized with a correct user to see that page")
+				c.Session().Delete("current_user_id")
+				c.Session().Set("redirectURL", c.Request().URL.String())
+				c.Flash().Add("danger", "You must be authorized with a correct user to see that page")
 				return c.Redirect(http.StatusFound, "/auth/new")
 			}
 			c.Set("current_user", u)
@@ -134,121 +256,4 @@ func verifyCode() string {
 	}
 
 	return code
-}
-
-// RecoveryRequest request struct for a recovery code
-type RecoveryRequest struct {
-	Email string `json:"email"`
-}
-
-// UserRequestRecovery handles requesting recovery for an account
-// when user provides matching email
-func UserRequestRecovery(c buffalo.Context) error {
-	req := &RecoveryRequest{}
-
-	if err := c.Bind(req); err != nil {
-		return errors.WithStack(err)
-	}
-
-	tx, ok := c.Value("tx").(*pop.Connection)
-	if !ok {
-		return errors.WithStack(errors.New("no transaction found"))
-	}
-
-	u := &models.User{}
-	if err := tx.Where(`Lower(email) = ?`, strings.ToLower(req.Email)).First(u); err != nil {
-		return c.Error(404, errors.New("Could not recover"))
-	}
-	u.RecoveryCode = nulls.NewString(verifyCode())
-	u.RecoveryExp = nulls.NewTime(time.Now().UTC().Add(time.Minute * 10))
-
-	verrs, err := u.Update(tx)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	if verrs.HasAny() {
-		c.Set("errors", verrs)
-		c.Set("req", req)
-		return c.Render(http.StatusOK, r.HTML("users/recovery.html"))
-	}
-	go func(u *models.User) {
-		sender, ok := c.Value("recovery_sender").(Sender)
-		if !ok {
-			fmt.Printf("ERROR SENDING RECOVERY: no recovery sender found\n")
-			return
-		}
-
-		if err := sender.Send(map[string]interface{}{
-			"code":           u.RecoveryCode.String,
-			"sender_email":   "system@example.com",
-			"receiver_email": u.Email,
-		}); err != nil {
-			fmt.Printf("ERROR SENDING RECOVERY: %v\n", err)
-		}
-	}(u)
-
-	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
-		return c.Redirect(http.StatusFound, "/recover")
-	}
-	return c.Render(http.StatusOK, r.Auto(c, "Sent"))
-}
-
-// RecoveryUpdate request struct for using recovery code
-type RecoveryUpdate struct {
-	Email                string `json:"email"`
-	Code                 string `json:"code"`
-	Password             string `json:"password"`
-	PasswordConfirmation string `json:"password_confirm"`
-}
-
-// UserRequestRecover is used to allow users to reset their passwords
-// using the recovery code we've sent them
-func UserRequestRecover(c buffalo.Context) error {
-	req := &models.RecoveryUpdate{}
-	if err := c.Bind(req); err != nil {
-		return errors.WithStack(err)
-	}
-
-	tx, ok := c.Value("tx").(*pop.Connection)
-	if !ok {
-		return errors.WithStack(errors.New("no transaction found"))
-	}
-
-	u := &models.User{}
-	verrs := req.Validate()
-	if verrs.HasAny() {
-		c.Set("errors", verrs)
-		c.Set("req", req)
-		return c.Render(http.StatusOK, r.HTML("users/recover.html"))
-	}
-
-	if err := tx.Where("Lower(email) = ?", strings.ToLower(req.Email)).First(u); err != nil {
-		c.Flash().Add("danger", "Recovery code is not valid")
-		return c.Redirect(301, "/recover")
-	}
-
-	if u.RecoveryExp.Time.After(time.Now().UTC()) && u.RecoveryCode.String == req.Code {
-		u.Password = req.Password
-		u.PasswordConfirmation = req.PasswordConfirmation
-
-		u.RecoveryCode = nulls.NewString("")
-		verrs, err := u.Update(tx)
-		if err != nil {
-			return errors.WithStack(err)
-		}
-		if verrs.HasAny() {
-			c.Set("errors", verrs)
-			c.Set("req", req)
-			return c.Render(http.StatusOK, r.HTML("users/recover.html"))
-		}
-	} else {
-		c.Flash().Add("warning", "Recovery code is not valid")
-		return c.Redirect(301, "/recover")
-	}
-
-	if ct, ok := c.Value("contentType").(string); !ok || strings.Contains(ct, "html") || strings.Contains(ct, "form") {
-		c.Flash().Add("success", "Your password has been reset")
-		return c.Redirect(http.StatusFound, "/")
-	}
-	return c.Render(http.StatusOK, r.Auto(c, u))
 }

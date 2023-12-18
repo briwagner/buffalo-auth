@@ -2,7 +2,7 @@ package actions
 
 import (
 	"database/sql"
-  "net/http"
+	"net/http"
 	"strings"
 
 	"github.com/gobuffalo/buffalo"
@@ -14,13 +14,12 @@ import (
 	"<%= app.PackagePkg %>/models"
 )
 
-// AuthLanding shows a landing page to login
-func AuthLanding(c buffalo.Context) error {
-	return c.Render(http.StatusOK, r.HTML("auth/landing.plush.html"))
-}
-
-// AuthNew loads the signin page
+// AuthNew loads the signin form.
 func AuthNew(c buffalo.Context) error {
+	if uid := c.Session().Get("current_user_id"); uid != nil {
+		c.Flash().Add("info", "You are logged in")
+		return c.Redirect(302, "/")
+	}
 	c.Set("user", models.User{})
 	return c.Render(http.StatusOK, r.HTML("auth/new.plush.html"))
 }
@@ -50,7 +49,7 @@ func AuthCreate(c buffalo.Context) error {
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			// Couldn't find an user with the supplied email address.
+			// Couldn't find a user with the supplied email address.
 			return bad()
 		}
 		return errors.WithStack(err)

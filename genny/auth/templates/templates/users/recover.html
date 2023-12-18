@@ -19,7 +19,7 @@
   <div class="sign-form">
     <h1>Recover</h1>
 
-    <%= form_for(req, {action: recoverPath(), method: "POST"}) { %>
+    <%= formFor(req, {action: passwordResetPath(), method: "POST"}) { %>
       <%= f.InputTag("Email") %>
       <%= f.InputTag("Code", {label: "Recovery Code"}) %>
       <%= f.InputTag("Password", {type: "password"}) %>

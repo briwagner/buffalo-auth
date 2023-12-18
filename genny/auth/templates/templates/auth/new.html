@@ -19,11 +19,16 @@
   <div class="sign-form">
     <h1>Sign In</h1>
 
-    <%= formFor(user, {action: authPath(), method: "POST"}) { %>
+    <%= formFor(user, {action: loginPath(), method: "POST"}) { %>
       <%= f.InputTag("Email") %>
       <%= f.InputTag("Password", {type: "password"}) %>
-      <button class="btn btn-success">Sign In!</button>
-      <a class="btn btn-info" href="/recovery">Forgot Password</a>
+      <div class="actions text-center">
+        <button class="btn btn-success">Sign In</button>
+        <%= linkTo(passwordResetPath(), {class: "btn btn-info"}) { %>Forgot Password<% } %>
+      </div>
     <% } %>
+  </div>
+  <div class="col-12 offset-11 mt-5">
+    <%= linkTo(newUsersPath()) { %>Register <% } %>
   </div>
 </div>
